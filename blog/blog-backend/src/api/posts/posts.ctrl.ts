@@ -3,8 +3,33 @@ import Post from '../../models/post';
 import * as mongoose from 'mongoose';
 import * as Joi from '@hapi/joi';
 import { State } from '../..';
+import * as sanitizeHtml from 'sanitize-html';
 
 const { ObjectId } = mongoose.Types;
+
+const sanitizeOption = {
+  allowedTags: [
+    'h1',
+    'h2',
+    'b',
+    'i',
+    'u',
+    's',
+    'p',
+    'ul',
+    'ol',
+    'li',
+    'blockquote',
+    'a',
+    'img',
+  ],
+  allowedAttributes: {
+    a: ['href', 'name', 'target'],
+    img: ['src'],
+    li: ['class'],
+  },
+  allowedSchemes: ['data', 'http'],
+};
 
 interface BodyWrite {
   title: string;
@@ -20,6 +45,14 @@ interface ListQuery {
   tag: string;
   username: string;
 }
+
+const removeHtmlAndShorten = (body: string) => {
+  const filtered = sanitizeHtml(body, {
+    allowedTags: [],
+  });
+
+  return filtered.length < 200 ? filtered : `${filtered.slice(0, 200)}...`;
+};
 
 export const getPostById = async (
   ctx: ParameterizedContext<State>,
@@ -75,7 +108,7 @@ export const write = async (
     const { title, body, tags }: BodyWrite = ctx.request.body;
     const post = new Post({
       title,
-      body,
+      body: sanitizeHtml(body, sanitizeOption),
       tags,
       user: ctx.state.user,
     });
@@ -114,10 +147,7 @@ export const list = async (ctx: Context): Promise<void> => {
       ctx.body = posts.map((post) => {
         return {
           ...post,
-          body:
-            post.body.length < 200
-              ? post.body
-              : `${post.body.slice(0, 200)}...`,
+          body: removeHtmlAndShorten(post.body),
         };
       });
     } catch (e) {
@@ -154,9 +184,14 @@ export const update = async (ctx: Context): Promise<void> => {
     ctx.body = result.error;
   } else {
     const { id }: ParamsId = ctx.params;
+    const nextData = { ...ctx.request.body };
+
+    if (nextData.body) {
+      nextData.body = sanitizeHtml(nextData.body, sanitizeOption);
+    }
 
     try {
-      const post = await Post.findByIdAndUpdate(id, ctx.request.body, {
+      const post = await Post.findByIdAndUpdate(id, nextData, {
         new: true,
       }).exec();
 
